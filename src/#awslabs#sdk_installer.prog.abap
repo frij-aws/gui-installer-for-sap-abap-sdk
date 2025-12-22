@@ -82,9 +82,9 @@ CLASS lcx_error DEFINITION DEFERRED.
 
 INTERFACE lif_global_constants.
   CONSTANTS:
-    gc_version TYPE string VALUE '1.2.8' ##NO_TEXT,
-    gc_commit  TYPE string VALUE '3d5da9e' ##NO_TEXT,
-    gc_date    TYPE string VALUE '2025-11-16 20:13:08 UTC' ##NO_TEXT,
+    gc_version            TYPE string VALUE '1.2.8' ##NO_TEXT,
+    gc_commit             TYPE string VALUE '3d5da9e' ##NO_TEXT,
+    gc_date               TYPE string VALUE '2025-11-16 20:13:08 UTC' ##NO_TEXT,
     gc_url_github_version TYPE w3_url VALUE 'https://raw.githubusercontent.com/awslabs/gui-installer-for-sap-abap-sdk/refs/heads/main/src/version.txt'  ##NO_TEXT,
     gc_url_github_raw     TYPE w3_url VALUE 'https://raw.githubusercontent.com/awslabs/gui-installer-for-sap-abap-sdk/refs/heads/main/src/%23awslabs%23sdk_installer.prog.abap'  ##NO_TEXT.
 ENDINTERFACE.
@@ -197,12 +197,18 @@ CLASS lcl_sdk_utils DEFINITION FINAL.
                         RETURNING VALUE(ov_xstring) TYPE xstring
                         RAISING   lcx_error,
       raise_lpath_exception IMPORTING i_filename TYPE string
-                            RAISING   lcx_error.
+                            RAISING   lcx_error,
+    xstring_to_string importing iv_xstr type xstring
+                  returning VALUE(ov_str) type string.
 ENDCLASS.
 
 
 CLASS lcl_sdk_utils IMPLEMENTATION.
+  METHOD xstring_to_string.
+    DATA(lo_conv) = cl_abap_conv_in_ce=>create( ). " No input needed at creation if using convert method
 
+    lo_conv->convert( EXPORTING input = iv_xstr IMPORTING data = ov_str ).
+  ENDMETHOD.
 
   METHOD cmp_version_string.
 
@@ -550,7 +556,7 @@ CLASS lcl_sdk_report_update_manager IMPLEMENTATION.
     TRY.
         DATA(github_version_xstring) = internet_manager->download( i_absolute_uri = lif_global_constants=>gc_url_github_version
                                                                    i_blankstocrlf = abap_false ).
-        DATA(github_version_string) = cl_abap_conv_codepage=>create_in( )->convert( github_version_xstring ).
+        DATA(github_version_string) = lcl_sdk_utils=>xstring_to_string( github_version_xstring ).
 
         SPLIT github_version_string AT cl_abap_char_utilities=>newline INTO TABLE DATA(version_lines).
 
@@ -598,7 +604,7 @@ CLASS lcl_sdk_report_update_manager IMPLEMENTATION.
   METHOD write_report_update.
 
     TRY.
-        DATA(report_string) = cl_abap_conv_codepage=>create_in( )->convert( source = i_report ).
+        DATA(report_string) = lcl_sdk_utils=>xstring_to_string( i_report ).
       CATCH cx_root INTO DATA(ex).
         RAISE EXCEPTION TYPE lcx_error EXPORTING iv_msg = ex->get_text( ).
     ENDTRY.
@@ -4492,7 +4498,12 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
 
   " WARNING: THIS NEEDS TO STAY SEPARATE FROM THE CONSTRUCTOR OR THE FM CALL IN CREATE_CONTAINER BREAKS THE SINGLETON
   METHOD init.
-    SELECT tla FROM @module_manager->mt_available_modules_inst AS am WHERE is_popular = 'X' INTO TABLE @mt_popular_modules .
+    data(lv_modules) = module_manager->mt_available_modules_inst.
+
+    "SELECT tla FROM @lv_modules AS am WHERE is_popular = 'X' INTO TABLE @mt_popular_modules .
+    loop at lv_modules ASSIGNING FIELD-SYMBOL(<module>) WHERE is_popular = 'X'.
+      insert value ts_sdk_tla( tla = <module>-tla ) into table mt_popular_modules.
+    endloop.
 
     " re-hydrate the module staging area if report is restarted
     IMPORT st_modules_to_be_installed = mt_modules_to_be_installed FROM SHARED BUFFER indx(mi) ID 'MOD_INST'.
@@ -5070,7 +5081,16 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
                    ir_node_key  = lr_key ) ##NO_TEXT.
 
     "------ Available Modules subfolder Popular Modules
-    DATA(l_popular_modules_no) = lines( mt_popular_modules ) - lines( FILTER #( module_manager->mt_installed_modules IN mt_popular_modules WHERE tla = tla ) ).
+    "DATA(l_popular_modules_no) = lines( mt_popular_modules ) - lines( FILTER #( module_manager->mt_installed_modules IN mt_popular_modules WHERE tla = tla ) ).
+    data(l_popular_modules_no) = 0.
+    loop at mt_popular_modules ASSIGNING FIELD-SYMBOL(<module>).
+      read table module_manager->mt_installed_modules TRANSPORTING NO FIELDS WITH TABLE KEY tla = <module>-tla.
+      if sy-subrc <> 0.
+        l_popular_modules_no = l_popular_modules_no + 1.
+      endif.
+    endloop.
+
+
     DATA(l_popular_modules_text) = 'Popular Modules (' && l_popular_modules_no && ')' ##NO_TEXT.
     DATA(l_popular_modules_lvc) = CONV lvc_value( l_popular_modules_text ).
 
