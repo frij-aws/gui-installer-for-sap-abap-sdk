@@ -156,7 +156,7 @@ CLASS lcl_sdk_params IMPLEMENTATION.
                        value = lv_dev_url
                        field_attr = '00'
                        novaluehlp = 'X' ) TO lt_fields ##NO_TEXT.
-    APPEND VALUE sval( tabname = 'SY' fieldname = 'TITLE'
+    APPEND VALUE sval( tabname = 'SY' fieldname = 'REPID'
                        fieldtext = 'Override Version'
                        field_obl = ' '
                        value = lv_sdk_version
