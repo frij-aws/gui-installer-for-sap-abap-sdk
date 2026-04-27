@@ -4375,26 +4375,30 @@ ENDCLASS.
 
 CLASS lcl_ui_command_dev_url IMPLEMENTATION.
   METHOD lif_ui_command~execute.
-    DATA(params) = lcl_sdk_params=>get_instance( ).
-    IF params->show_settings_dialog( ) = abap_true.
-      " Clear cached target version so it gets re-evaluated
-      CLEAR target_version.
-      " Re-initialize the zipfile collection with the new URL/version
-      module_manager->reset_zipfiles( ).
-      tree_controller->refresh( ).
-      IF params->has_dev_url( ) OR params->has_sdk_version( ).
-        DATA(lv_msg) = |Developer settings applied|.
-        IF params->has_dev_url( ).
-          lv_msg = lv_msg && | (URL: { params->get_dev_url( ) })|.
+    TRY.
+        DATA(params) = lcl_sdk_params=>get_instance( ).
+        IF params->show_settings_dialog( ) = abap_true.
+          " Clear cached target version so it gets re-evaluated
+          CLEAR target_version.
+          " Re-initialize the zipfile collection with the new URL/version
+          module_manager->reset_zipfiles( ).
+          tree_controller->refresh( ).
+          IF params->has_dev_url( ) OR params->has_sdk_version( ).
+            DATA(lv_msg) = |Developer settings applied|.
+            IF params->has_dev_url( ).
+              lv_msg = lv_msg && | (URL: { params->get_dev_url( ) })|.
+            ENDIF.
+            IF params->has_sdk_version( ).
+              lv_msg = lv_msg && | (Version: { params->get_sdk_version( ) })|.
+            ENDIF.
+            MESSAGE lv_msg TYPE 'S' ##NO_TEXT.
+          ELSE.
+            MESSAGE |Developer settings cleared, using defaults.| TYPE 'S' ##NO_TEXT.
+          ENDIF.
         ENDIF.
-        IF params->has_sdk_version( ).
-          lv_msg = lv_msg && | (Version: { params->get_sdk_version( ) })|.
-        ENDIF.
-        MESSAGE lv_msg TYPE 'S' ##NO_TEXT.
-      ELSE.
-        MESSAGE |Developer settings cleared, using defaults.| TYPE 'S' ##NO_TEXT.
-      ENDIF.
-    ENDIF.
+      CATCH cx_root INTO DATA(lo_ex).
+        MESSAGE lo_ex->get_text( ) TYPE 'I' DISPLAY LIKE 'E'.
+    ENDTRY.
   ENDMETHOD.
 
   METHOD lif_ui_command~can_execute.
