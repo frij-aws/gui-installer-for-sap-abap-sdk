@@ -150,13 +150,13 @@ CLASS lcl_sdk_params IMPLEMENTATION.
     lv_sdk_version = sdk_version.
 
     DATA lt_fields TYPE TABLE OF sval.
-    APPEND VALUE sval( tabname = 'RSPARAMS' fieldname = 'LOW'
+    APPEND VALUE sval( tabname = 'SY' fieldname = 'TITLE'
                        fieldtext = 'Override URL'
                        field_obl = ' '
                        value = lv_dev_url
                        field_attr = '00'
                        novaluehlp = 'X' ) TO lt_fields ##NO_TEXT.
-    APPEND VALUE sval( tabname = 'RSPARAMS' fieldname = 'LOW'
+    APPEND VALUE sval( tabname = 'SY' fieldname = 'TITLE'
                        fieldtext = 'Override Version'
                        field_obl = ' '
                        value = lv_sdk_version
@@ -184,13 +184,9 @@ CLASS lcl_sdk_params IMPLEMENTATION.
     DATA(lv_new_url) = condense( lt_fields[ 1 ]-value ).
     DATA(lv_new_version) = condense( lt_fields[ 2 ]-value ).
 
-    IF lv_new_url <> dev_url OR lv_new_version <> sdk_version.
-      dev_url = lv_new_url.
-      sdk_version = lv_new_version.
-      r_changed = abap_true.
-    ELSE.
-      r_changed = abap_false.
-    ENDIF.
+    dev_url = lv_new_url.
+    sdk_version = lv_new_version.
+    r_changed = abap_true.
   ENDMETHOD.
 ENDCLASS.
 
