@@ -73,6 +73,7 @@ CLASS lcl_ui_command_dow_trk DEFINITION DEFERRED.
 CLASS lcl_ui_command_ref_ctl DEFINITION DEFERRED.
 CLASS lcl_ui_command_btc_dtl DEFINITION DEFERRED.
 CLASS lcl_ui_command_chk_upd DEFINITION DEFERRED.
+CLASS lcl_ui_command_dev_url DEFINITION DEFERRED.
 CLASS lcl_ui_utils DEFINITION DEFERRED.
 
 CLASS lcl_main DEFINITION DEFERRED.
@@ -88,6 +89,110 @@ INTERFACE lif_global_constants.
     gc_url_github_version TYPE w3_url VALUE 'https://raw.githubusercontent.com/awslabs/gui-installer-for-sap-abap-sdk/refs/heads/main/src/version.txt'  ##NO_TEXT,
     gc_url_github_raw     TYPE w3_url VALUE 'https://raw.githubusercontent.com/awslabs/gui-installer-for-sap-abap-sdk/refs/heads/main/src/%23awslabs%23sdk_installer.prog.abap'  ##NO_TEXT.
 ENDINTERFACE.
+
+
+CLASS lcl_sdk_params DEFINITION FINAL CREATE PRIVATE.
+  PUBLIC SECTION.
+    CLASS-METHODS:
+      get_instance RETURNING VALUE(r_instance) TYPE REF TO lcl_sdk_params.
+    METHODS:
+      get_dev_url RETURNING VALUE(r_url) TYPE string,
+      get_sdk_version RETURNING VALUE(r_version) TYPE string,
+      has_dev_url RETURNING VALUE(r_result) TYPE abap_bool,
+      has_sdk_version RETURNING VALUE(r_result) TYPE abap_bool,
+      set_dev_url IMPORTING i_url TYPE string,
+      set_sdk_version IMPORTING i_version TYPE string,
+      show_settings_dialog RETURNING VALUE(r_changed) TYPE abap_bool.
+  PRIVATE SECTION.
+    CLASS-DATA: instance TYPE REF TO lcl_sdk_params.
+    DATA: dev_url TYPE string,
+          sdk_version TYPE string.
+ENDCLASS.
+
+CLASS lcl_sdk_params IMPLEMENTATION.
+  METHOD get_instance.
+    IF instance IS NOT BOUND.
+      instance = NEW lcl_sdk_params( ).
+    ENDIF.
+    r_instance = instance.
+  ENDMETHOD.
+
+  METHOD get_dev_url.
+    r_url = dev_url.
+  ENDMETHOD.
+
+  METHOD get_sdk_version.
+    r_version = sdk_version.
+  ENDMETHOD.
+
+  METHOD has_dev_url.
+    r_result = xsdbool( dev_url IS NOT INITIAL ).
+  ENDMETHOD.
+
+  METHOD has_sdk_version.
+    r_result = xsdbool( sdk_version IS NOT INITIAL ).
+  ENDMETHOD.
+
+  METHOD set_dev_url.
+    dev_url = i_url.
+  ENDMETHOD.
+
+  METHOD set_sdk_version.
+    sdk_version = i_version.
+  ENDMETHOD.
+
+  METHOD show_settings_dialog.
+    DATA lv_dev_url TYPE string.
+    DATA lv_sdk_version TYPE string.
+    DATA lv_returncode TYPE c LENGTH 1.
+
+    lv_dev_url = dev_url.
+    lv_sdk_version = sdk_version.
+
+    DATA lt_fields TYPE TABLE OF sval.
+    APPEND VALUE sval( tabname = 'RSPARAMS' fieldname = 'LOW'
+                       fieldtext = 'Override URL'
+                       field_obl = ' '
+                       value = lv_dev_url
+                       field_attr = '00'
+                       novaluehlp = 'X' ) TO lt_fields ##NO_TEXT.
+    APPEND VALUE sval( tabname = 'RSPARAMS' fieldname = 'LOW'
+                       fieldtext = 'Override Version'
+                       field_obl = ' '
+                       value = lv_sdk_version
+                       field_attr = '00'
+                       novaluehlp = 'X' ) TO lt_fields ##NO_TEXT.
+
+    CALL FUNCTION 'POPUP_GET_VALUES'
+      EXPORTING
+        popup_title     = 'Developer Settings'
+        start_column    = '5'
+        start_row       = '5'
+      IMPORTING
+        returncode      = lv_returncode
+      TABLES
+        fields          = lt_fields
+      EXCEPTIONS
+        error_in_fields = 1
+        OTHERS          = 2 ##NO_TEXT.
+
+    IF sy-subrc <> 0 OR lv_returncode = 'A'.
+      r_changed = abap_false.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_new_url) = condense( lt_fields[ 1 ]-value ).
+    DATA(lv_new_version) = condense( lt_fields[ 2 ]-value ).
+
+    IF lv_new_url <> dev_url OR lv_new_version <> sdk_version.
+      dev_url = lv_new_url.
+      sdk_version = lv_new_version.
+      r_changed = abap_true.
+    ELSE.
+      r_changed = abap_false.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
 
 
 INTERFACE lif_sdk_constants.
@@ -1713,7 +1818,16 @@ CLASS lcl_sdk_zipfile IMPLEMENTATION.
 
   METHOD build_download_uri_prefix.
 
-    r_result = |{ i_protocol }{ lif_sdk_constants=>c_download_uri_prefix }{ i_major_version }/{ i_branch }/| ##NO_TEXT..
+    IF lcl_sdk_params=>get_instance( )->has_dev_url( ).
+      DATA(lv_dev_url) = lcl_sdk_params=>get_instance( )->get_dev_url( ).
+      " Ensure trailing slash
+      IF substring( val = lv_dev_url off = strlen( lv_dev_url ) - 1 len = 1 ) <> '/'.
+        lv_dev_url = lv_dev_url && '/'.
+      ENDIF.
+      r_result = lv_dev_url.
+    ELSE.
+      r_result = |{ i_protocol }{ lif_sdk_constants=>c_download_uri_prefix }{ i_major_version }/{ i_branch }/| ##NO_TEXT.
+    ENDIF.
 
   ENDMETHOD.
 
@@ -1849,8 +1963,11 @@ CLASS lcl_sdk_zipfile_collection IMPLEMENTATION.
     IF i_zipfiles IS NOT INITIAL.
       mt_zipfiles = i_zipfiles.
     ELSE.
-      add( NEW lcl_sdk_zipfile( i_op = 'install' i_version  = 'LATEST' ) ).
-      add( NEW lcl_sdk_zipfile( i_op = 'uninstall' i_version  = 'LATEST' ) ).
+      DATA(lv_version) = COND string( WHEN lcl_sdk_params=>get_instance( )->has_sdk_version( )
+                                      THEN lcl_sdk_params=>get_instance( )->get_sdk_version( )
+                                      ELSE 'LATEST' ) ##NO_TEXT.
+      add( NEW lcl_sdk_zipfile( i_op = 'install' i_version  = lv_version ) ).
+      add( NEW lcl_sdk_zipfile( i_op = 'uninstall' i_version  = lv_version ) ).
     ENDIF.
 
     IF i_internet_manager IS BOUND.
@@ -2276,7 +2393,8 @@ CLASS lcl_sdk_module_manager DEFINITION FINAL CREATE PRIVATE.
       update_zipfiles_if_outdated IMPORTING i_avers_core_inst   TYPE string
                                             i_avers_core_uninst TYPE string
                                   RETURNING VALUE(r_result)     TYPE abap_bool
-                                  RAISING   lcx_error.
+                                  RAISING   lcx_error,
+      reset_zipfiles RAISING lcx_error.
 
 
   PROTECTED SECTION.
@@ -2358,13 +2476,17 @@ CLASS lcl_sdk_module_manager IMPLEMENTATION.
 
     mt_installed_modules = get_sdk_installed_modules( ).
 
+    DATA(lv_version) = COND string( WHEN lcl_sdk_params=>get_instance( )->has_sdk_version( )
+                                    THEN lcl_sdk_params=>get_instance( )->get_sdk_version( )
+                                    ELSE 'LATEST' ) ##NO_TEXT.
+
     mt_available_modules_inst = get_sdk_avail_modules_json( i_operation = 'install'
                                                             i_source    = 'web'
-                                                            i_version   = 'LATEST' ) ##NO_TEXT.
+                                                            i_version   = lv_version ) ##NO_TEXT.
 
     mt_available_modules_uninst = get_sdk_avail_modules_json( i_operation = 'uninstall'
                                                               i_source    = 'web'
-                                                              i_version   = 'LATEST' ) ##NO_TEXT.
+                                                              i_version   = lv_version ) ##NO_TEXT.
 
     " needs available modules to be populated first
     mt_deprecated_modules = get_sdk_deprecated_modules( ).
@@ -2383,7 +2505,13 @@ CLASS lcl_sdk_module_manager IMPLEMENTATION.
 
     DATA: lt_modules_to_be_installed TYPE tt_sdk_tla.
     DATA: lt_modules_to_be_deleted TYPE tt_sdk_tla.
-    DATA: lv_target_version TYPE string VALUE 'LATEST'.
+    DATA: lv_target_version TYPE string.
+
+    IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+      lv_target_version = lcl_sdk_params=>get_instance( )->get_sdk_version( ).
+    ELSE.
+      lv_target_version = 'LATEST'.
+    ENDIF.
 
     DATA(lt_available_modules_cv) = get_sdk_avail_modules_json( i_operation = 'install'
                                                                 i_source    = 'web'
@@ -2422,12 +2550,16 @@ CLASS lcl_sdk_module_manager IMPLEMENTATION.
     DATA lv_dl_result TYPE abap_bool.
     r_result = abap_true.
 
+    DATA(lv_version) = COND string( WHEN lcl_sdk_params=>get_instance( )->has_sdk_version( )
+                                    THEN lcl_sdk_params=>get_instance( )->get_sdk_version( )
+                                    ELSE 'LATEST' ) ##NO_TEXT.
+
     DATA(lt_mod_avail_inst_zip) = get_sdk_avail_modules_json( i_operation = 'install'
                                                               i_source    = 'zip'
-                                                              i_version   = 'LATEST' ).
+                                                              i_version   = lv_version ).
     DATA(lt_mod_avail_uninst_zip) = get_sdk_avail_modules_json( i_operation = 'uninstall'
                                                                 i_source    = 'zip'
-                                                                i_version   = 'LATEST' ).
+                                                                i_version   = lv_version ).
 
     IF lcl_sdk_utils=>cmp_version_string( i_string1 = i_avers_core_inst
                                       i_string2 = lt_mod_avail_inst_zip[ tla = 'core' ]-avers ) = 1
@@ -2435,7 +2567,7 @@ CLASS lcl_sdk_module_manager IMPLEMENTATION.
                                           i_string2 = lt_mod_avail_uninst_zip[ tla = 'core' ]-avers ) = 1.
       MESSAGE 'One or more ABAP SDK zipfiles not current. Downloading new version now.' TYPE 'I' ##NO_TEXT.
       TRY.
-          zipfiles->download_zipfile_pair( i_version = 'LATEST' ).
+          zipfiles->download_zipfile_pair( i_version = lv_version ).
         CATCH lcx_error.
           MESSAGE 'One or more ABAP SDK zipfiles could not be successfully downloaded, aborting' TYPE 'I' DISPLAY LIKE 'E' ##NO_TEXT.
           r_result = abap_false.
@@ -2828,6 +2960,11 @@ CLASS lcl_sdk_module_manager IMPLEMENTATION.
       r_result = abap_false.
     ENDIF.
 
+  ENDMETHOD.
+
+
+  METHOD reset_zipfiles.
+    zipfiles = NEW lcl_sdk_zipfile_collection( ).
   ENDMETHOD.
 
 
@@ -3935,6 +4072,12 @@ CLASS lcl_ui_command_base IMPLEMENTATION.
       r_version = target_version.
       RETURN.
     ENDIF.
+    " If a specific version was requested via developer settings, use it
+    IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+      target_version = lcl_sdk_params=>get_instance( )->get_sdk_version( ).
+      r_version = target_version.
+      RETURN.
+    ENDIF.
     " we only use the same version as core (given it is installed at all)
     " if the installed version of core is NOT the latest version
     IF module_manager->is_core_installed( ) = abap_true.
@@ -3994,7 +4137,11 @@ CLASS lcl_ui_command_exe_dia IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_target_version.
-    r_version = 'LATEST'.
+    IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+      r_version = lcl_sdk_params=>get_instance( )->get_sdk_version( ).
+    ELSE.
+      r_version = 'LATEST'.
+    ENDIF.
   ENDMETHOD.
 ENDCLASS.
 
@@ -4040,7 +4187,11 @@ CLASS lcl_ui_command_exe_btc IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_target_version.
-    r_version = 'LATEST'.
+    IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+      r_version = lcl_sdk_params=>get_instance( )->get_sdk_version( ).
+    ELSE.
+      r_version = 'LATEST'.
+    ENDIF.
   ENDMETHOD.
 ENDCLASS.
 
@@ -4210,6 +4361,44 @@ CLASS lcl_ui_command_btc_dtl IMPLEMENTATION.
     ELSE.
       MESSAGE 'No background job currently running.' TYPE 'I' ##NO_TEXT.
     ENDIF.
+  ENDMETHOD.
+ENDCLASS.
+
+
+CLASS lcl_ui_command_dev_url DEFINITION INHERITING FROM lcl_ui_command_base FINAL.
+  PUBLIC SECTION.
+    METHODS:
+      lif_ui_command~execute REDEFINITION,
+      lif_ui_command~can_execute REDEFINITION.
+ENDCLASS.
+
+
+CLASS lcl_ui_command_dev_url IMPLEMENTATION.
+  METHOD lif_ui_command~execute.
+    DATA(params) = lcl_sdk_params=>get_instance( ).
+    IF params->show_settings_dialog( ) = abap_true.
+      " Clear cached target version so it gets re-evaluated
+      CLEAR target_version.
+      " Re-initialize the zipfile collection with the new URL/version
+      module_manager->reset_zipfiles( ).
+      tree_controller->refresh( ).
+      IF params->has_dev_url( ) OR params->has_sdk_version( ).
+        DATA(lv_msg) = |Developer settings applied|.
+        IF params->has_dev_url( ).
+          lv_msg = lv_msg && | (URL: { params->get_dev_url( ) })|.
+        ENDIF.
+        IF params->has_sdk_version( ).
+          lv_msg = lv_msg && | (Version: { params->get_sdk_version( ) })|.
+        ENDIF.
+        MESSAGE lv_msg TYPE 'S' ##NO_TEXT.
+      ELSE.
+        MESSAGE |Developer settings cleared, using defaults.| TYPE 'S' ##NO_TEXT.
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD lif_ui_command~can_execute.
+    r_result = abap_true.
   ENDMETHOD.
 ENDCLASS.
 
@@ -4464,6 +4653,8 @@ CLASS lcl_ui_command_factory IMPLEMENTATION.
         r_command = NEW lcl_ui_command_dow_trk( ).
       WHEN 'INS_ALL'.
         r_command = NEW lcl_ui_command_ins_all( ).
+      WHEN 'DEV_URL'.
+        r_command = NEW lcl_ui_command_dev_url( ).
       WHEN OTHERS.
         RAISE EXCEPTION TYPE lcx_error EXPORTING iv_msg = |Unkown function code { i_function_code }| ##NO_TEXT..
     ENDCASE.
@@ -5275,15 +5466,19 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
 
   METHOD refresh.
 
+    DATA(lv_version) = COND string( WHEN lcl_sdk_params=>get_instance( )->has_sdk_version( )
+                                    THEN lcl_sdk_params=>get_instance( )->get_sdk_version( )
+                                    ELSE 'LATEST' ) ##NO_TEXT.
+
     module_manager->mt_installed_modules = module_manager->get_sdk_installed_modules( ).
 
     module_manager->mt_available_modules_inst = module_manager->get_sdk_avail_modules_json( i_operation = 'install'
                                                                                             i_source    = 'web'
-                                                                                            i_version   = 'LATEST' ).
+                                                                                            i_version   = lv_version ).
 
     module_manager->mt_available_modules_uninst = module_manager->get_sdk_avail_modules_json( i_operation = 'uninstall'
                                                                                               i_source    = 'web'
-                                                                                              i_version   = 'LATEST' ).
+                                                                                              i_version   = lv_version ).
 
 
     IF NOT job_manager->is_job_running( ).
@@ -5401,6 +5596,11 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
           lr_functions->enable_function( name    = 'INS_ALL'
                                          boolean = 'X' ).
         ENDIF.
+
+        " Developer settings button is always enabled
+        lr_functions->enable_function( name    = 'DEV_URL'
+                                       boolean = 'X' ).
+
       CATCH cx_salv_wrong_call INTO DATA(r_ex1).
         MESSAGE r_ex1->get_text( ) TYPE 'I' DISPLAY LIKE 'E'.
       CATCH cx_salv_not_found INTO DATA(r_ex2).
@@ -5544,6 +5744,13 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
           icon     = '@6N@'
           text     = 'Install all modules'
           tooltip  = 'Install all available modules'
+          position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
+
+        lr_functions->add_function(
+          name     = 'DEV_URL'
+          icon     = '@9D@'
+          text     = 'Developer Settings'
+          tooltip  = 'Override download URL and version for development'
           position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
 
         refresh_buttons( ).
