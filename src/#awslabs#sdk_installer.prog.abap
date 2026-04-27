@@ -74,6 +74,7 @@ CLASS lcl_ui_command_ref_ctl DEFINITION DEFERRED.
 CLASS lcl_ui_command_btc_dtl DEFINITION DEFERRED.
 CLASS lcl_ui_command_chk_upd DEFINITION DEFERRED.
 CLASS lcl_ui_command_dev_url DEFINITION DEFERRED.
+CLASS lcl_ui_command_dev_ver DEFINITION DEFERRED.
 CLASS lcl_ui_utils DEFINITION DEFERRED.
 
 CLASS lcl_main DEFINITION DEFERRED.
@@ -102,7 +103,8 @@ CLASS lcl_sdk_params DEFINITION FINAL CREATE PRIVATE.
       has_sdk_version RETURNING VALUE(r_result) TYPE abap_bool,
       set_dev_url IMPORTING i_url TYPE string,
       set_sdk_version IMPORTING i_version TYPE string,
-      show_settings_dialog RETURNING VALUE(r_changed) TYPE abap_bool.
+      prompt_for_url RETURNING VALUE(r_changed) TYPE abap_bool,
+      prompt_for_version RETURNING VALUE(r_changed) TYPE abap_bool.
   PRIVATE SECTION.
     CLASS-DATA: instance TYPE REF TO lcl_sdk_params.
     DATA: dev_url TYPE string,
@@ -141,51 +143,53 @@ CLASS lcl_sdk_params IMPLEMENTATION.
     sdk_version = i_version.
   ENDMETHOD.
 
-  METHOD show_settings_dialog.
-    DATA lv_dev_url TYPE string.
-    DATA lv_sdk_version TYPE string.
-    DATA lv_returncode TYPE c LENGTH 1.
+  METHOD prompt_for_url.
+    DATA lv_answer TYPE c.
+    DATA lv_value TYPE spop-varvalue1.
+    lv_value = dev_url.
 
-    lv_dev_url = dev_url.
-    lv_sdk_version = sdk_version.
-
-    DATA lt_fields TYPE TABLE OF sval.
-    APPEND VALUE sval( tabname = 'DD03L' fieldname = 'FIELDNAME'
-                       fieldtext = 'Override URL'
-                       field_obl = ' '
-                       value = lv_dev_url
-                       field_attr = '00'
-                       novaluehlp = 'X' ) TO lt_fields ##NO_TEXT.
-    APPEND VALUE sval( tabname = 'DD03L' fieldname = 'TABNAME'
-                       fieldtext = 'Override Version'
-                       field_obl = ' '
-                       value = lv_sdk_version
-                       field_attr = '00'
-                       novaluehlp = 'X' ) TO lt_fields ##NO_TEXT.
-
-    CALL FUNCTION 'POPUP_GET_VALUES'
+    CALL FUNCTION 'POPUP_TO_GET_ONE_VALUE'
       EXPORTING
-        popup_title     = 'Developer Settings'
-        start_column    = '5'
-        start_row       = '5'
+        textline1   = 'Enter base URL for SDK downloads'
+        textline2   = '(leave empty to use production URL)'
+        titel       = 'Override Download URL'
+        valuelength = '30'
       IMPORTING
-        returncode      = lv_returncode
-      TABLES
-        fields          = lt_fields
+        answer      = lv_answer
+        value1      = lv_value
       EXCEPTIONS
-        error_in_fields = 1
-        OTHERS          = 2 ##NO_TEXT.
-
-    IF sy-subrc <> 0 OR lv_returncode = 'A'.
+        titel_too_long = 1
+        OTHERS         = 2 ##NO_TEXT.
+    IF sy-subrc <> 0 OR lv_answer <> 'J'.
       r_changed = abap_false.
       RETURN.
     ENDIF.
+    dev_url = condense( CONV string( lv_value ) ).
+    r_changed = abap_true.
+  ENDMETHOD.
 
-    DATA(lv_new_url) = condense( lt_fields[ 1 ]-value ).
-    DATA(lv_new_version) = condense( lt_fields[ 2 ]-value ).
+  METHOD prompt_for_version.
+    DATA lv_answer TYPE c.
+    DATA lv_value TYPE spop-varvalue1.
+    lv_value = sdk_version.
 
-    dev_url = lv_new_url.
-    sdk_version = lv_new_version.
+    CALL FUNCTION 'POPUP_TO_GET_ONE_VALUE'
+      EXPORTING
+        textline1   = 'Enter SDK version to install (e.g. 1.2.3)'
+        textline2   = '(leave empty to use LATEST)'
+        titel       = 'Override SDK Version'
+        valuelength = '20'
+      IMPORTING
+        answer      = lv_answer
+        value1      = lv_value
+      EXCEPTIONS
+        titel_too_long = 1
+        OTHERS         = 2 ##NO_TEXT.
+    IF sy-subrc <> 0 OR lv_answer <> 'J'.
+      r_changed = abap_false.
+      RETURN.
+    ENDIF.
+    sdk_version = condense( CONV string( lv_value ) ).
     r_changed = abap_true.
   ENDMETHOD.
 ENDCLASS.
@@ -4373,23 +4377,47 @@ CLASS lcl_ui_command_dev_url IMPLEMENTATION.
   METHOD lif_ui_command~execute.
     TRY.
         DATA(params) = lcl_sdk_params=>get_instance( ).
-        IF params->show_settings_dialog( ) = abap_true.
-          " Clear cached target version so it gets re-evaluated
+        IF params->prompt_for_url( ) = abap_true.
           CLEAR target_version.
-          " Re-initialize the zipfile collection with the new URL/version
           module_manager->reset_zipfiles( ).
           tree_controller->refresh( ).
-          IF params->has_dev_url( ) OR params->has_sdk_version( ).
-            DATA(lv_msg) = |Developer settings applied|.
-            IF params->has_dev_url( ).
-              lv_msg = lv_msg && | (URL: { params->get_dev_url( ) })|.
-            ENDIF.
-            IF params->has_sdk_version( ).
-              lv_msg = lv_msg && | (Version: { params->get_sdk_version( ) })|.
-            ENDIF.
-            MESSAGE lv_msg TYPE 'S' ##NO_TEXT.
+          IF params->has_dev_url( ).
+            MESSAGE |URL override set: { params->get_dev_url( ) }| TYPE 'S' ##NO_TEXT.
           ELSE.
-            MESSAGE |Developer settings cleared, using defaults.| TYPE 'S' ##NO_TEXT.
+            MESSAGE |URL override cleared, using production URL.| TYPE 'S' ##NO_TEXT.
+          ENDIF.
+        ENDIF.
+      CATCH cx_root INTO DATA(lo_ex).
+        MESSAGE lo_ex->get_text( ) TYPE 'I' DISPLAY LIKE 'E'.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD lif_ui_command~can_execute.
+    r_result = abap_true.
+  ENDMETHOD.
+ENDCLASS.
+
+
+CLASS lcl_ui_command_dev_ver DEFINITION INHERITING FROM lcl_ui_command_base FINAL.
+  PUBLIC SECTION.
+    METHODS:
+      lif_ui_command~execute REDEFINITION,
+      lif_ui_command~can_execute REDEFINITION.
+ENDCLASS.
+
+
+CLASS lcl_ui_command_dev_ver IMPLEMENTATION.
+  METHOD lif_ui_command~execute.
+    TRY.
+        DATA(params) = lcl_sdk_params=>get_instance( ).
+        IF params->prompt_for_version( ) = abap_true.
+          CLEAR target_version.
+          module_manager->reset_zipfiles( ).
+          tree_controller->refresh( ).
+          IF params->has_sdk_version( ).
+            MESSAGE |Version override set: { params->get_sdk_version( ) }| TYPE 'S' ##NO_TEXT.
+          ELSE.
+            MESSAGE |Version override cleared, using LATEST.| TYPE 'S' ##NO_TEXT.
           ENDIF.
         ENDIF.
       CATCH cx_root INTO DATA(lo_ex).
@@ -4655,6 +4683,8 @@ CLASS lcl_ui_command_factory IMPLEMENTATION.
         r_command = NEW lcl_ui_command_ins_all( ).
       WHEN 'DEV_URL'.
         r_command = NEW lcl_ui_command_dev_url( ).
+      WHEN 'DEV_VER'.
+        r_command = NEW lcl_ui_command_dev_ver( ).
       WHEN OTHERS.
         RAISE EXCEPTION TYPE lcx_error EXPORTING iv_msg = |Unkown function code { i_function_code }| ##NO_TEXT..
     ENDCASE.
@@ -5597,8 +5627,10 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
                                          boolean = 'X' ).
         ENDIF.
 
-        " Developer settings button is always enabled
+        " Developer settings buttons are always enabled
         lr_functions->enable_function( name    = 'DEV_URL'
+                                       boolean = 'X' ).
+        lr_functions->enable_function( name    = 'DEV_VER'
                                        boolean = 'X' ).
 
       CATCH cx_salv_wrong_call INTO DATA(r_ex1).
@@ -5749,8 +5781,15 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
         lr_functions->add_function(
           name     = 'DEV_URL'
           icon     = '@9D@'
-          text     = 'Developer Settings'
-          tooltip  = 'Override download URL and version for development'
+          text     = 'Override URL'
+          tooltip  = 'Override the download URL for development'
+          position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
+
+        lr_functions->add_function(
+          name     = 'DEV_VER'
+          icon     = '@9D@'
+          text     = 'Override Version'
+          tooltip  = 'Override the SDK version to install'
           position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
 
         refresh_buttons( ).
