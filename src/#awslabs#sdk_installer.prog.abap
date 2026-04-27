@@ -167,28 +167,26 @@ CLASS lcl_sdk_params IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD prompt_for_version.
-    DATA lv_answer TYPE c.
-    DATA lv_value TYPE spop-varvalue1.
-    lv_value = sdk_version.
-
-    CALL FUNCTION 'POPUP_TO_GET_ONE_VALUE'
-      EXPORTING
-        textline1   = 'Enter SDK version to install (e.g. 1.2.3)'
-        textline2   = '(leave empty to use LATEST)'
-        titel       = 'Override SDK Version'
-        valuelength = '20'
-      IMPORTING
-        answer      = lv_answer
-        value1      = lv_value
-      EXCEPTIONS
-        titel_too_long = 1
-        OTHERS         = 2 ##NO_TEXT.
-    IF sy-subrc <> 0 OR lv_answer <> 'J'.
-      r_changed = abap_false.
-      RETURN.
+    DATA lt_text TYPE catsxt_longtext_itab.
+    IF sdk_version IS NOT INITIAL.
+      APPEND sdk_version TO lt_text.
     ENDIF.
-    sdk_version = condense( CONV string( lv_value ) ).
-    r_changed = abap_true.
+
+    CALL FUNCTION 'CATSXT_SIMPLE_TEXT_EDITOR'
+      EXPORTING
+        im_title        = CONV sytitle( 'Override SDK Version' )
+        im_start_column = 10
+        im_start_row    = 5
+      CHANGING
+        ch_text         = lt_text ##NO_TEXT.
+
+    DATA(lv_new_version) = condense( REDUCE string( INIT s TYPE string FOR line IN lt_text NEXT s = s && line ) ).
+    IF lv_new_version <> sdk_version.
+      sdk_version = lv_new_version.
+      r_changed = abap_true.
+    ELSE.
+      r_changed = abap_false.
+    ENDIF.
   ENDMETHOD.
 ENDCLASS.
 
