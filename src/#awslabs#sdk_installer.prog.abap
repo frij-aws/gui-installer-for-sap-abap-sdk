@@ -144,28 +144,26 @@ CLASS lcl_sdk_params IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD prompt_for_url.
-    DATA lv_answer TYPE c.
-    DATA lv_value TYPE spop-varvalue1.
-    lv_value = dev_url.
-
-    CALL FUNCTION 'POPUP_TO_GET_ONE_VALUE'
-      EXPORTING
-        textline1   = 'Enter base URL for SDK downloads'
-        textline2   = '(leave empty to use production URL)'
-        titel       = 'Override Download URL'
-        valuelength = '30'
-      IMPORTING
-        answer      = lv_answer
-        value1      = lv_value
-      EXCEPTIONS
-        titel_too_long = 1
-        OTHERS         = 2 ##NO_TEXT.
-    IF sy-subrc <> 0 OR lv_answer <> 'J'.
-      r_changed = abap_false.
-      RETURN.
+    DATA lt_text TYPE catsxt_longtext_itab.
+    IF dev_url IS NOT INITIAL.
+      APPEND dev_url TO lt_text.
     ENDIF.
-    dev_url = condense( CONV string( lv_value ) ).
-    r_changed = abap_true.
+
+    CALL FUNCTION 'CATSXT_SIMPLE_TEXT_EDITOR'
+      EXPORTING
+        im_title        = CONV sytitle( 'Override Download URL' )
+        im_start_column = 10
+        im_start_row    = 5
+      CHANGING
+        ch_text         = lt_text ##NO_TEXT.
+
+    DATA(lv_new_url) = condense( REDUCE string( INIT s TYPE string FOR line IN lt_text NEXT s = s && line ) ).
+    IF lv_new_url <> dev_url.
+      dev_url = lv_new_url.
+      r_changed = abap_true.
+    ELSE.
+      r_changed = abap_false.
+    ENDIF.
   ENDMETHOD.
 
   METHOD prompt_for_version.
