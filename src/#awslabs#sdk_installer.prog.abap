@@ -5146,11 +5146,7 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
 
         l_text = wa_installed_module-tla.
 
-        IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
-          wa_installed_module-op_icon = '@09@'.
-          wa_installed_module-op_text = 'Module will be updated (version override).' ##NO_TEXT.
-          wa_installed_module-op_code = lif_ui_constants=>c_operation_update.
-        ELSEIF lcl_sdk_utils=>cmp_version_string( i_string1 = wa_installed_module-avers
+        IF lcl_sdk_utils=>cmp_version_string( i_string1 = wa_installed_module-avers
                                                       i_string2 = wa_installed_module-cvers ) = 0.
           wa_installed_module-op_icon = '@08@'.
           wa_installed_module-op_text = 'Module up to date, no operation planned.' ##NO_TEXT.
@@ -5161,9 +5157,15 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
           wa_installed_module-op_text = 'Module will be updated.' ##NO_TEXT.
           wa_installed_module-op_code = lif_ui_constants=>c_operation_update.
         ELSE.
-          wa_installed_module-op_icon = '@0A@'.
-          wa_installed_module-op_text = 'Current version higher than available version. Module may be deprecated.' ##NO_TEXT.
-          wa_installed_module-op_code = lif_ui_constants=>c_operation_none.
+          IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+            wa_installed_module-op_icon = '@09@'.
+            wa_installed_module-op_text = 'Version override active. Uncheck then recheck to update.' ##NO_TEXT.
+            wa_installed_module-op_code = lif_ui_constants=>c_operation_none.
+          ELSE.
+            wa_installed_module-op_icon = '@0A@'.
+            wa_installed_module-op_text = 'Current version higher than available version. Module may be deprecated.' ##NO_TEXT.
+            wa_installed_module-op_code = lif_ui_constants=>c_operation_none.
+          ENDIF.
         ENDIF.
 
 
