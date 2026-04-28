@@ -5146,7 +5146,11 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
 
         l_text = wa_installed_module-tla.
 
-        IF lcl_sdk_utils=>cmp_version_string( i_string1 = wa_installed_module-avers
+        IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+          wa_installed_module-op_icon = '@09@'.
+          wa_installed_module-op_text = 'Module will be updated (version override).' ##NO_TEXT.
+          wa_installed_module-op_code = lif_ui_constants=>c_operation_update.
+        ELSEIF lcl_sdk_utils=>cmp_version_string( i_string1 = wa_installed_module-avers
                                                       i_string2 = wa_installed_module-cvers ) = 0.
           wa_installed_module-op_icon = '@08@'.
           wa_installed_module-op_text = 'Module up to date, no operation planned.' ##NO_TEXT.
@@ -6039,7 +6043,12 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
             l_node->set_data_row( wa_row ).
 
           ELSE.
-            IF lcl_sdk_utils=>cmp_version_string( i_string1 = module_manager->mt_installed_modules[ tla = l_tla ]-avers
+            IF lcl_sdk_params=>get_instance( )->has_sdk_version( ).
+              wa_row-op_text = 'Module will be updated (version override).' ##NO_TEXT.
+              wa_row-op_icon = '@09@' ##NO_TEXT.
+              wa_row-op_code = lif_ui_constants=>c_operation_update.
+              l_node->set_data_row( wa_row ).
+            ELSEIF lcl_sdk_utils=>cmp_version_string( i_string1 = module_manager->mt_installed_modules[ tla = l_tla ]-avers
                                                           i_string2 = module_manager->mt_installed_modules[ tla = l_tla ]-cvers ) = 1.
               wa_row-op_text = 'Module will be updated.' ##NO_TEXT.
               wa_row-op_icon = '@09@' ##NO_TEXT.
