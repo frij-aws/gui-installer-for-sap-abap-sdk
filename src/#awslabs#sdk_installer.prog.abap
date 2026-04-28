@@ -5385,6 +5385,11 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
 
   METHOD refresh.
 
+    " Recreate zipfile collection if endpoint has been overridden so URLs point to the new host
+    IF lcl_sdk_params=>get_instance( )->has_dev_url( ).
+      module_manager->reset_zipfiles( ).
+    ENDIF.
+
     module_manager->mt_installed_modules = module_manager->get_sdk_installed_modules( ).
 
     module_manager->mt_available_modules_inst = module_manager->get_sdk_avail_modules_json( i_operation = 'install'
