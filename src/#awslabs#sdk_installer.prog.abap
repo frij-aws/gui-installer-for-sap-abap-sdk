@@ -103,7 +103,7 @@ CLASS lcl_sdk_params DEFINITION FINAL CREATE PRIVATE.
       has_sdk_version RETURNING VALUE(r_result) TYPE abap_bool,
       set_dev_url IMPORTING i_url TYPE string,
       set_sdk_version IMPORTING i_version TYPE string,
-      prompt_for_url RETURNING VALUE(r_changed) TYPE abap_bool,
+      prompt_for_endpoint RETURNING VALUE(r_changed) TYPE abap_bool,
       prompt_for_version RETURNING VALUE(r_changed) TYPE abap_bool.
   PRIVATE SECTION.
     CLASS-DATA: instance TYPE REF TO lcl_sdk_params.
@@ -143,7 +143,7 @@ CLASS lcl_sdk_params IMPLEMENTATION.
     sdk_version = i_version.
   ENDMETHOD.
 
-  METHOD prompt_for_url.
+  METHOD prompt_for_endpoint.
     DATA lt_text TYPE catsxt_longtext_itab.
     IF dev_url IS NOT INITIAL.
       APPEND dev_url TO lt_text.
@@ -151,15 +151,15 @@ CLASS lcl_sdk_params IMPLEMENTATION.
 
     CALL FUNCTION 'CATSXT_SIMPLE_TEXT_EDITOR'
       EXPORTING
-        im_title        = CONV sytitle( 'Override Download URL' )
+        im_title        = CONV sytitle( 'Endpoint Override (hostname only)' )
         im_start_column = 10
         im_start_row    = 5
       CHANGING
         ch_text         = lt_text ##NO_TEXT.
 
-    DATA(lv_new_url) = condense( REDUCE string( INIT s TYPE string FOR line IN lt_text NEXT s = s && line ) ).
-    IF lv_new_url <> dev_url.
-      dev_url = lv_new_url.
+    DATA(lv_new_host) = condense( REDUCE string( INIT s TYPE string FOR line IN lt_text NEXT s = s && line ) ).
+    IF lv_new_host <> dev_url.
+      dev_url = lv_new_host.
       r_changed = abap_true.
     ELSE.
       r_changed = abap_false.
@@ -1815,12 +1815,8 @@ CLASS lcl_sdk_zipfile IMPLEMENTATION.
   METHOD build_download_uri_prefix.
 
     IF lcl_sdk_params=>get_instance( )->has_dev_url( ).
-      DATA(lv_dev_url) = lcl_sdk_params=>get_instance( )->get_dev_url( ).
-      " Ensure trailing slash
-      IF substring( val = lv_dev_url off = strlen( lv_dev_url ) - 1 len = 1 ) <> '/'.
-        lv_dev_url = lv_dev_url && '/'.
-      ENDIF.
-      r_result = lv_dev_url.
+      DATA(lv_host) = lcl_sdk_params=>get_instance( )->get_dev_url( ).
+      r_result = |{ i_protocol }://{ lv_host }/awsSdkSapabapV{ i_major_version }/{ i_branch }/| ##NO_TEXT.
     ELSE.
       r_result = |{ i_protocol }{ lif_sdk_constants=>c_download_uri_prefix }{ i_major_version }/{ i_branch }/| ##NO_TEXT.
     ENDIF.
@@ -4373,14 +4369,14 @@ CLASS lcl_ui_command_dev_url IMPLEMENTATION.
   METHOD lif_ui_command~execute.
     TRY.
         DATA(params) = lcl_sdk_params=>get_instance( ).
-        IF params->prompt_for_url( ) = abap_true.
+        IF params->prompt_for_endpoint( ) = abap_true.
           CLEAR target_version.
           module_manager->reset_zipfiles( ).
           tree_controller->refresh( ).
           IF params->has_dev_url( ).
-            MESSAGE |URL override set: { params->get_dev_url( ) }| TYPE 'S' ##NO_TEXT.
+            MESSAGE |Endpoint override set: { params->get_dev_url( ) }| TYPE 'S' ##NO_TEXT.
           ELSE.
-            MESSAGE |URL override cleared, using production URL.| TYPE 'S' ##NO_TEXT.
+            MESSAGE |Endpoint override cleared, using production.| TYPE 'S' ##NO_TEXT.
           ENDIF.
         ENDIF.
       CATCH cx_root INTO DATA(lo_ex).
@@ -5777,8 +5773,8 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
         lr_functions->add_function(
           name     = 'DEV_URL'
           icon     = '@9D@'
-          text     = 'Override URL'
-          tooltip  = 'Override the download URL for development'
+          text     = 'Endpoint Override'
+          tooltip  = 'Override the download endpoint hostname'
           position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
 
         lr_functions->add_function(
