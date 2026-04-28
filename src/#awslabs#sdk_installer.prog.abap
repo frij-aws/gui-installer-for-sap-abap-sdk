@@ -2341,7 +2341,8 @@ CLASS lcl_sdk_module_manager DEFINITION FINAL CREATE PRIVATE.
       update_zipfiles_if_outdated IMPORTING i_avers_core_inst   TYPE string
                                             i_avers_core_uninst TYPE string
                                   RETURNING VALUE(r_result)     TYPE abap_bool
-                                  RAISING   lcx_error.
+                                  RAISING   lcx_error,
+      reset_zipfiles RAISING lcx_error.
 
 
   PROTECTED SECTION.
@@ -2893,6 +2894,11 @@ CLASS lcl_sdk_module_manager IMPLEMENTATION.
       r_result = abap_false.
     ENDIF.
 
+  ENDMETHOD.
+
+
+  METHOD reset_zipfiles.
+    zipfiles = NEW lcl_sdk_zipfile_collection( ).
   ENDMETHOD.
 
 
@@ -4293,6 +4299,7 @@ CLASS lcl_ui_command_dev_url IMPLEMENTATION.
         DATA(params) = lcl_sdk_params=>get_instance( ).
         IF params->prompt_for_endpoint( ) = abap_true.
           CLEAR target_version.
+          module_manager->reset_zipfiles( ).
           tree_controller->refresh( ).
           IF params->has_dev_url( ).
             MESSAGE |Endpoint override set: { params->get_dev_url( ) }| TYPE 'S' ##NO_TEXT.
