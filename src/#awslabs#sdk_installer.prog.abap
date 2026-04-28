@@ -73,6 +73,7 @@ CLASS lcl_ui_command_dow_trk DEFINITION DEFERRED.
 CLASS lcl_ui_command_ref_ctl DEFINITION DEFERRED.
 CLASS lcl_ui_command_btc_dtl DEFINITION DEFERRED.
 CLASS lcl_ui_command_chk_upd DEFINITION DEFERRED.
+CLASS lcl_ui_command_dev_url DEFINITION DEFERRED.
 CLASS lcl_ui_utils DEFINITION DEFERRED.
 
 CLASS lcl_main DEFINITION DEFERRED.
@@ -88,6 +89,65 @@ INTERFACE lif_global_constants.
     gc_url_github_version TYPE w3_url VALUE 'https://raw.githubusercontent.com/awslabs/gui-installer-for-sap-abap-sdk/refs/heads/main/src/version.txt'  ##NO_TEXT,
     gc_url_github_raw     TYPE w3_url VALUE 'https://raw.githubusercontent.com/awslabs/gui-installer-for-sap-abap-sdk/refs/heads/main/src/%23awslabs%23sdk_installer.prog.abap'  ##NO_TEXT.
 ENDINTERFACE.
+
+
+CLASS lcl_sdk_params DEFINITION FINAL CREATE PRIVATE.
+  PUBLIC SECTION.
+    CLASS-METHODS:
+      get_instance RETURNING VALUE(r_instance) TYPE REF TO lcl_sdk_params.
+    METHODS:
+      get_dev_url RETURNING VALUE(r_url) TYPE string,
+      has_dev_url RETURNING VALUE(r_result) TYPE abap_bool,
+      set_dev_url IMPORTING i_url TYPE string,
+      prompt_for_endpoint RETURNING VALUE(r_changed) TYPE abap_bool.
+  PRIVATE SECTION.
+    CLASS-DATA: instance TYPE REF TO lcl_sdk_params.
+    DATA: dev_url TYPE string.
+ENDCLASS.
+
+CLASS lcl_sdk_params IMPLEMENTATION.
+  METHOD get_instance.
+    IF instance IS NOT BOUND.
+      instance = NEW lcl_sdk_params( ).
+    ENDIF.
+    r_instance = instance.
+  ENDMETHOD.
+
+  METHOD get_dev_url.
+    r_url = dev_url.
+  ENDMETHOD.
+
+  METHOD has_dev_url.
+    r_result = xsdbool( dev_url IS NOT INITIAL ).
+  ENDMETHOD.
+
+  METHOD set_dev_url.
+    dev_url = i_url.
+  ENDMETHOD.
+
+  METHOD prompt_for_endpoint.
+    DATA lt_text TYPE catsxt_longtext_itab.
+    IF dev_url IS NOT INITIAL.
+      APPEND dev_url TO lt_text.
+    ENDIF.
+
+    CALL FUNCTION 'CATSXT_SIMPLE_TEXT_EDITOR'
+      EXPORTING
+        im_title        = CONV sytitle( 'Endpoint Override (hostname only)' )
+        im_start_column = 10
+        im_start_row    = 5
+      CHANGING
+        ch_text         = lt_text ##NO_TEXT.
+
+    DATA(lv_new_host) = condense( REDUCE string( INIT s TYPE string FOR line IN lt_text NEXT s = s && line ) ).
+    IF lv_new_host <> dev_url.
+      dev_url = lv_new_host.
+      r_changed = abap_true.
+    ELSE.
+      r_changed = abap_false.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
 
 
 INTERFACE lif_sdk_constants.
@@ -1713,7 +1773,12 @@ CLASS lcl_sdk_zipfile IMPLEMENTATION.
 
   METHOD build_download_uri_prefix.
 
-    r_result = |{ i_protocol }{ lif_sdk_constants=>c_download_uri_prefix }{ i_major_version }/{ i_branch }/| ##NO_TEXT..
+    IF lcl_sdk_params=>get_instance( )->has_dev_url( ).
+      DATA(lv_host) = lcl_sdk_params=>get_instance( )->get_dev_url( ).
+      r_result = |{ i_protocol }://{ lv_host }/awsSdkSapabapV{ i_major_version }/{ i_branch }/| ##NO_TEXT.
+    ELSE.
+      r_result = |{ i_protocol }{ lif_sdk_constants=>c_download_uri_prefix }{ i_major_version }/{ i_branch }/| ##NO_TEXT.
+    ENDIF.
 
   ENDMETHOD.
 
@@ -4214,6 +4279,38 @@ CLASS lcl_ui_command_btc_dtl IMPLEMENTATION.
 ENDCLASS.
 
 
+CLASS lcl_ui_command_dev_url DEFINITION INHERITING FROM lcl_ui_command_base FINAL.
+  PUBLIC SECTION.
+    METHODS:
+      lif_ui_command~execute REDEFINITION,
+      lif_ui_command~can_execute REDEFINITION.
+ENDCLASS.
+
+
+CLASS lcl_ui_command_dev_url IMPLEMENTATION.
+  METHOD lif_ui_command~execute.
+    TRY.
+        DATA(params) = lcl_sdk_params=>get_instance( ).
+        IF params->prompt_for_endpoint( ) = abap_true.
+          CLEAR target_version.
+          tree_controller->refresh( ).
+          IF params->has_dev_url( ).
+            MESSAGE |Endpoint override set: { params->get_dev_url( ) }| TYPE 'S' ##NO_TEXT.
+          ELSE.
+            MESSAGE |Endpoint override cleared, using production.| TYPE 'S' ##NO_TEXT.
+          ENDIF.
+        ENDIF.
+      CATCH cx_root INTO DATA(lo_ex).
+        MESSAGE lo_ex->get_text( ) TYPE 'I' DISPLAY LIKE 'E'.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD lif_ui_command~can_execute.
+    r_result = abap_true.
+  ENDMETHOD.
+ENDCLASS.
+
+
 CLASS lcl_ui_command_upd_ins DEFINITION INHERITING FROM lcl_ui_command_base FINAL.
   PUBLIC SECTION.
     METHODS:
@@ -4464,6 +4561,8 @@ CLASS lcl_ui_command_factory IMPLEMENTATION.
         r_command = NEW lcl_ui_command_dow_trk( ).
       WHEN 'INS_ALL'.
         r_command = NEW lcl_ui_command_ins_all( ).
+      WHEN 'DEV_URL'.
+        r_command = NEW lcl_ui_command_dev_url( ).
       WHEN OTHERS.
         RAISE EXCEPTION TYPE lcx_error EXPORTING iv_msg = |Unkown function code { i_function_code }| ##NO_TEXT..
     ENDCASE.
@@ -4933,7 +5032,11 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
 
         l_text = wa_installed_module-tla.
 
-        IF lcl_sdk_utils=>cmp_version_string( i_string1 = wa_installed_module-avers
+        IF lcl_sdk_params=>get_instance( )->has_dev_url( ).
+          wa_installed_module-op_icon = '@09@'.
+          wa_installed_module-op_text = 'Module will be updated.' ##NO_TEXT.
+          wa_installed_module-op_code = lif_ui_constants=>c_operation_update.
+        ELSEIF lcl_sdk_utils=>cmp_version_string( i_string1 = wa_installed_module-avers
                                                       i_string2 = wa_installed_module-cvers ) = 0.
           wa_installed_module-op_icon = '@08@'.
           wa_installed_module-op_text = 'Module up to date, no operation planned.' ##NO_TEXT.
@@ -5401,6 +5504,11 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
           lr_functions->enable_function( name    = 'INS_ALL'
                                          boolean = 'X' ).
         ENDIF.
+
+        " Endpoint override button is always enabled
+        lr_functions->enable_function( name    = 'DEV_URL'
+                                       boolean = 'X' ).
+
       CATCH cx_salv_wrong_call INTO DATA(r_ex1).
         MESSAGE r_ex1->get_text( ) TYPE 'I' DISPLAY LIKE 'E'.
       CATCH cx_salv_not_found INTO DATA(r_ex2).
@@ -5544,6 +5652,13 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
           icon     = '@6N@'
           text     = 'Install all modules'
           tooltip  = 'Install all available modules'
+          position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
+
+        lr_functions->add_function(
+          name     = 'DEV_URL'
+          icon     = '@9D@'
+          text     = 'Endpoint Override'
+          tooltip  = 'Override the download endpoint hostname'
           position = if_salv_c_function_position=>left_of_salv_functions ) ##NO_TEXT.
 
         refresh_buttons( ).
@@ -5801,7 +5916,12 @@ CLASS lcl_ui_tree_controller IMPLEMENTATION.
             l_node->set_data_row( wa_row ).
 
           ELSE.
-            IF lcl_sdk_utils=>cmp_version_string( i_string1 = module_manager->mt_installed_modules[ tla = l_tla ]-avers
+            IF lcl_sdk_params=>get_instance( )->has_dev_url( ).
+              wa_row-op_text = 'Module will be updated.' ##NO_TEXT.
+              wa_row-op_icon = '@09@' ##NO_TEXT.
+              wa_row-op_code = lif_ui_constants=>c_operation_update.
+              l_node->set_data_row( wa_row ).
+            ELSEIF lcl_sdk_utils=>cmp_version_string( i_string1 = module_manager->mt_installed_modules[ tla = l_tla ]-avers
                                                           i_string2 = module_manager->mt_installed_modules[ tla = l_tla ]-cvers ) = 1.
               wa_row-op_text = 'Module will be updated.' ##NO_TEXT.
               wa_row-op_icon = '@09@' ##NO_TEXT.
